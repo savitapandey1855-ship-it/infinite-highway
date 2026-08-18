@@ -8,7 +8,7 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { overflow: hidden; background: #000; font-family: 'Segoe UI', system-ui, sans-serif; }
   canvas { display: block; }
-  
+
   #loading {
     position: fixed; inset: 0; background: #0a0a12; color: #e0e0e0;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -18,7 +18,7 @@
   #loading p { color: #888; font-size: 0.9rem; }
   #loading-bar { width: 260px; height: 4px; background: #222; border-radius: 2px; margin-top: 20px; overflow: hidden; }
   #loading-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #4fc3f7, #81d4fa); transition: width 0.3s; }
-  
+
   #hud {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
     display: flex; gap: 32px; align-items: flex-end; z-index: 10; pointer-events: none;
@@ -32,9 +32,7 @@
   .hud-value { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
   .hud-unit { font-size: 0.7rem; color: #888; }
 
-  #speedo-ring {
-    width: 120px; height: 120px; position: relative;
-  }
+  #speedo-ring { width: 120px; height: 120px; position: relative; }
   #speedo-ring svg { transform: rotate(-90deg); }
   #speedo-center {
     position: absolute; inset: 0; display: flex; flex-direction: column;
@@ -51,8 +49,7 @@
   }
   #controls-hint kbd {
     background: rgba(79, 195, 247, 0.15); border: 1px solid rgba(79, 195, 247, 0.3);
-    border-radius: 4px; padding: 2px 7px; font-size: 0.75rem; color: #4fc3f7;
-    font-family: monospace;
+    border-radius: 4px; padding: 2px 7px; font-size: 0.75rem; color: #4fc3f7; font-family: monospace;
   }
 
   #gear-ind {
@@ -76,7 +73,7 @@
 
 <div id="loading">
   <h1>INFINITE HIGHWAY</h1>
-  <p>Loading road model...</p>
+  <p id="loading-msg">Loading road model...</p>
   <div id="loading-bar"><div id="loading-fill"></div></div>
 </div>
 
@@ -129,7 +126,14 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// ─── Renderer ──────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+//  COORDINATE SYSTEM: Z-UP (native to both GLB models)
+//  - X = left/right (road width)
+//  - Y = forward/backward (road length, driving direction)
+//  - Z = up (height)
+// ═══════════════════════════════════════════════════════════════
+
+// ─── Renderer ─────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -139,21 +143,22 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
 
-// ─── Scene & Fog ───────────────────────────────────
+// ─── Scene ────────────────────────────────────────
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87a6c4);
-scene.fog = new THREE.Fog(0x87a6c4, 1500, 6000);
+scene.fog = new THREE.Fog(0x87a6c4, 2000, 8000);
 
-// ─── Camera ────────────────────────────────────────
-const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.5, 12000);
-camera.position.set(0, 80, -120);
+// ─── Camera (Z-up) ────────────────────────────────
+const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.5, 20000);
+camera.up.set(0, 0, 1);  // Z-up!
+camera.position.set(0, -200, 120);
 
 // ─── Lighting ──────────────────────────────────────
-const hemi = new THREE.HemisphereLight(0xbfd8e8, 0x4a5a2a, 0.6);
+const hemi = new THREE.HemisphereLight(0xbfd8e8, 0x4a5a2a, 0.7);
 scene.add(hemi);
 
-const sun = new THREE.DirectionalLight(0xfff4e0, 1.4);
-sun.position.set(800, 1500, 400);
+const sun = new THREE.DirectionalLight(0xfff4e0, 1.6);
+sun.position.set(800, 400, 1500);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.camera.near = 100;
@@ -164,147 +169,166 @@ sun.shadow.camera.top = 600;
 sun.shadow.camera.bottom = -600;
 sun.shadow.bias = -0.0005;
 scene.add(sun);
+scene.add(sun.target);
 
-// ─── Constants ─────────────────────────────────────
-// The GLB model's road runs along the Y axis.
-// Bounding box: Y from -5092 to +4977 → length ≈ 10069
+// ─── Constants ────────────────────────────────────
+// Road model bounding box: Y[-5092, 4977] -> length approx 10069
 // We tile copies along Y at this interval.
 const TILE_LENGTH = 10000;
-const NUM_TILES = 5;   // number of simultaneous road tiles
-const ROAD_WIDTH = 600; // playable road width (for collision)
+const NUM_TILES = 5;
+const ROAD_WIDTH = 500;   // playable width for collision
+const ROAD_SURFACE_Z = 6; // road surface height from model
 
-// ─── Load GLB ─────────────────────────────────────
-const loader = new GLTFLoader();
-let roadTemplate = null;
-const roadTiles = [];
+// URLs for models hosted on GitHub Releases
+const ROAD_URL = 'https://github.com/savitapandey1855-ship-it/infinite-highway/releases/download/v1.0/american_road.glb';
+const CAR_URL  = 'https://github.com/savitapandey1855-ship-it/infinite-highway/releases/download/v1.0/car.glb';
 
+// ─── DOM refs ─────────────────────────────────────
 const loadingFill = document.getElementById('loading-fill');
+const loadingMsg = document.getElementById('loading-msg');
 const loadingScreen = document.getElementById('loading');
 
-const GLB_URL = 'https://github.com/savitapandey1855-ship-it/infinite-highway/releases/download/v1.0/american_road.glb';
-loader.load(GLB_URL, (gltf) => {
+// ─── Asset Loading ────────────────────────────────
+const loader = new GLTFLoader();
+let roadTemplate = null;
+let carModel = null;
+const roadTiles = [];
+let modelsLoaded = 0;
+const TOTAL_MODELS = 2;
+
+function onModelLoaded() {
+  modelsLoaded++;
+  const pct = (modelsLoaded / TOTAL_MODELS) * 100;
+  loadingFill.style.width = pct + '%';
+
+  if (modelsLoaded === TOTAL_MODELS) {
+    setupRoadTiles();
+    setupCar();
+    loadingMsg.textContent = 'Ready!';
+    loadingScreen.style.opacity = '0';
+    setTimeout(() => loadingScreen.style.display = 'none', 600);
+    animate();
+  }
+}
+
+// Load road model
+loadingMsg.textContent = 'Loading road model...';
+loader.load(ROAD_URL, (gltf) => {
   roadTemplate = gltf.scene;
-  
-  // Enable shadows on all meshes
   roadTemplate.traverse((child) => {
     if (child.isMesh) {
       child.castShadow = true;
       child.receiveShadow = true;
     }
   });
-
-  // Create tile clones
-  for (let i = 0; i < NUM_TILES; i++) {
-    const tile = roadTemplate.clone(true);
-    tile.position.set(0, 0, i * TILE_LENGTH);
-    scene.add(tile);
-    roadTiles.push({ mesh: tile, y: i * TILE_LENGTH });
-  }
-
-  // Hide loading screen
-  loadingScreen.style.opacity = '0';
-  setTimeout(() => loadingScreen.style.display = 'none', 600);
-
-  animate();
+  onModelLoaded();
 }, (xhr) => {
   if (xhr.lengthComputable) {
-    const pct = (xhr.loaded / xhr.total) * 100;
+    const pct = (xhr.loaded / xhr.total) * 50;
     loadingFill.style.width = pct + '%';
   }
 }, (err) => {
-  console.error('GLB load error:', err);
-  document.querySelector('#loading p').textContent = 'Error loading model. Check console.';
+  console.error('Road load error:', err);
+  loadingMsg.textContent = 'Error loading road model!';
 });
 
+// Load car model
+loadingMsg.textContent = 'Loading car model...';
+loader.load(CAR_URL, (gltf) => {
+  carModel = gltf.scene;
+  carModel.traverse((child) => {
+    if (child.isMesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
+    }
+  });
+  onModelLoaded();
+}, (xhr) => {
+  if (xhr.lengthComputable) {
+    const pct = 50 + (xhr.loaded / xhr.total) * 50;
+    loadingFill.style.width = pct + '%';
+  }
+}, (err) => {
+  console.error('Car load error:', err);
+  loadingMsg.textContent = 'Error loading car model!';
+});
+
+// ─── Road Tiles ───────────────────────────────────
+function setupRoadTiles() {
+  for (let i = 0; i < NUM_TILES; i++) {
+    const tile = roadTemplate.clone(true);
+    tile.position.set(0, i * TILE_LENGTH, 0);
+    scene.add(tile);
+    roadTiles.push({ mesh: tile, y: i * TILE_LENGTH });
+  }
+}
+
+function updateRoadTiles() {
+  const carTileY = Math.floor(car.pos.y / TILE_LENGTH) * TILE_LENGTH;
+
+  roadTiles.forEach((tile) => {
+    if (tile.y - carTileY < -TILE_LENGTH) {
+      // Move this tile to the front (furthest ahead)
+      let maxY = -Infinity;
+      roadTiles.forEach(t => { if (t.y > maxY) maxY = t.y; });
+      tile.y = maxY + TILE_LENGTH;
+      tile.mesh.position.y = tile.y;
+    }
+    if (tile.y - carTileY > TILE_LENGTH * (NUM_TILES - 1)) {
+      // Move this tile to the back (furthest behind)
+      let minY = Infinity;
+      roadTiles.forEach(t => { if (t.y < minY) minY = t.y; });
+      tile.y = minY - TILE_LENGTH;
+      tile.mesh.position.y = tile.y;
+    }
+  });
+}
+
 // ─── Car ──────────────────────────────────────────
-// Build a simple but nice-looking car from primitives
 const carGroup = new THREE.Group();
 
-function createCar() {
-  // Lower body
-  const bodyGeo = new THREE.BoxGeometry(28, 12, 55);
-  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xd32f2f, metalness: 0.6, roughness: 0.35 });
-  const body = new THREE.Mesh(bodyGeo, bodyMat);
-  body.position.y = 18;
-  body.castShadow = true;
-  body.receiveShadow = true;
-  carGroup.add(body);
+function setupCar() {
+  // Compute bounding box of the car model
+  const box = new THREE.Box3().setFromObject(carModel);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
 
-  // Cabin / roof
-  const cabinGeo = new THREE.BoxGeometry(24, 12, 30);
-  const cabinMat = new THREE.MeshStandardMaterial({ color: 0xb71c1c, metalness: 0.5, roughness: 0.3 });
-  const cabin = new THREE.Mesh(cabinGeo, cabinMat);
-  cabin.position.set(0, 30, -3);
-  cabin.castShadow = true;
-  carGroup.add(cabin);
+  // Scale the car to be proportional on the road
+  // Model is ~17 units long; road is ~600 wide. Scale to make car ~80 units long.
+  const carScale = 5;
+  carModel.scale.setScalar(carScale);
 
-  // Windshield (front = +Z direction)
-  const wsGeo = new THREE.BoxGeometry(22, 10, 2);
-  const wsMat = new THREE.MeshStandardMaterial({ color: 0x1a237e, metalness: 0.1, roughness: 0.1, transparent: true, opacity: 0.7 });
-  const ws = new THREE.Mesh(wsGeo, wsMat);
-  ws.position.set(0, 28, 13);
-  carGroup.add(ws);
-  // Rear window
-  const rw = new THREE.Mesh(wsGeo, wsMat);
-  rw.position.set(0, 28, -18);
-  carGroup.add(rw);
-  // Side windows
-  const swGeo = new THREE.BoxGeometry(2, 8, 24);
-  const swL = new THREE.Mesh(swGeo, wsMat); swL.position.set(12.5, 30, -3); carGroup.add(swL);
-  const swR = new THREE.Mesh(swGeo, wsMat); swR.position.set(-12.5, 30, -3); carGroup.add(swR);
+  // Offset model so origin is at center-X/Y, wheels at Z=0
+  carModel.position.set(
+    -center.x * carScale,
+    -center.y * carScale,
+    -box.min.z * carScale
+  );
 
-  // Headlights
-  const hlGeo = new THREE.SphereGeometry(2, 8, 8);
-  const hlMat = new THREE.MeshStandardMaterial({ color: 0xffffcc, emissive: 0xffffaa, emissiveIntensity: 0.8 });
-  const hlL = new THREE.Mesh(hlGeo, hlMat); hlL.position.set(8, 18, 28); carGroup.add(hlL);
-  const hlR = new THREE.Mesh(hlGeo, hlMat); hlR.position.set(-8, 18, 28); carGroup.add(hlR);
-
-  // Tail lights
-  const tlMat = new THREE.MeshStandardMaterial({ color: 0xff3333, emissive:0xff0000, emissiveIntensity: 0.5 });
-  const tlL = new THREE.Mesh(hlGeo, tlMat); tlL.position.set(8, 18, -28); carGroup.add(tlL);
-  const tlR = new THREE.Mesh(hlGeo, tlMat); tlR.position.set(-8, 18, -28); carGroup.add(tlR);
-
-  // Wheels
-  const wheelGeo = new THREE.CylinderGeometry(7, 7, 4, 16);
-  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.8 });
-  const wheelPositions = [
-    [14, 7, 18], [-14, 7, 18],
-    [14, 7, -18], [-14, 7, -18]
-  ];
-  const wheels = [];
-  wheelPositions.forEach(([x, y, z]) => {
-    const w = new THREE.Mesh(wheelGeo, wheelMat);
-    w.rotation.z = Math.PI / 2;
-    w.position.set(x, y, z);
-    w.castShadow = true;
-    carGroup.add(w);
-    wheels.push(w);
-  });
-  carGroup.userData.wheels = wheels;
-
-  // Spoiler
-  const spoilerGeo = new THREE.BoxGeometry(26, 2, 8);
-  const spoilerMat = new THREE.MeshStandardMaterial({ color: 0x222, metalness: 0.7, roughness: 0.3 });
-  const spoiler = new THREE.Mesh(spoilerGeo, spoilerMat);
-  spoiler.position.set(0, 28, -28);
-  spoiler.castShadow = true;
-  carGroup.add(spoiler);
-  // Spoiler supports
-  const supGeo = new THREE.BoxGeometry(2, 6, 2);
-  const supL = new THREE.Mesh(supGeo, spoilerMat); supL.position.set(8, 24, -28); carGroup.add(supL);
-  const supR = new THREE.Mesh(supGeo, spoilerMat); supR.position.set(-8, 24, -28); carGroup.add(supR);
-
+  carGroup.add(carModel);
   scene.add(carGroup);
-}
-createCar();
 
-// Car physics state
+  // Find wheel meshes for animation (look for meshes with "wheel" in name, or by position)
+  carGroup.userData.wheels = [];
+  carModel.traverse((child) => {
+    if (child.isMesh && child.name) {
+      const n = child.name.toLowerCase();
+      if (n.includes('wheel') || n.includes('tire') || n.includes('rim')) {
+        carGroup.userData.wheels.push(child);
+      }
+    }
+  });
+}
+
+// Car physics state -- Z-up coordinate system
+// Forward = +Y when heading=0
+// Heading rotates around Z axis
 const car = {
-  pos: new THREE.Vector3(0, 0, 100),
-  vel: 0,          // forward speed (units/sec)
-  heading: 0,      // rotation around Y (radians)
+  pos: new THREE.Vector3(0, 200, ROAD_SURFACE_Z),
+  vel: 0,
+  heading: 0,       // rotation around Z
   steerAngle: 0,
-  maxSpeed: 320,   // units/sec ≈ ~320 km/h display
+  maxSpeed: 320,
   accel: 80,
   brakeForce: 200,
   reverseMax: -60,
@@ -319,6 +343,9 @@ const car = {
 
 // ─── Controls ─────────────────────────────────────
 const keys = {};
+let cameraMode = 0;
+let camTarget = new THREE.Vector3();
+
 window.addEventListener('keydown', (e) => {
   keys[e.code] = true;
   if (e.code === 'KeyC') cameraMode = (cameraMode + 1) % 3;
@@ -326,41 +353,13 @@ window.addEventListener('keydown', (e) => {
 });
 window.addEventListener('keyup', (e) => { keys[e.code] = false; });
 
-// ─── Camera Modes ─────────────────────────────────
-let cameraMode = 0; // 0 = chase, 1 = hood, 2 = far
-let camTarget = new THREE.Vector3();
-
 // ─── Game State ───────────────────────────────────
 let distance = 0;
 let topSpeed = 0;
 let score = 0;
 
-// ─── Road Tile Recycling ─────────────────────────
-function updateRoadTiles() {
-  const carTileY = Math.floor(car.pos.y / TILE_LENGTH) * TILE_LENGTH;
-
-  roadTiles.forEach((tile) => {
-    // If tile is too far behind the car, move it ahead
-    if (tile.y - carTileY < -TILE_LENGTH) {
-      // Find the furthest-ahead tile
-      let maxY = -Infinity;
-      roadTiles.forEach(t => { if (t.y > maxY) maxY = t.y; });
-      tile.y = maxY + TILE_LENGTH;
-      tile.mesh.position.y = tile.y;
-    }
-    // If tile is too far ahead, move it behind
-    if (tile.y - carTileY > TILE_LENGTH * (NUM_TILES - 1)) {
-      let minY = Infinity;
-      roadTiles.forEach(t => { if (t.y < minY) minY = t.y; });
-      tile.y = minY - TILE_LENGTH;
-      tile.mesh.position.y = tile.y;
-    }
-  });
-}
-
-// ─── Update Car Physics ──────────────────────────
+// ─── Car Physics Update ──────────────────────────
 function updateCar(dt) {
-  // Acceleration / Brake
   const accelInput = (keys['KeyW'] || keys['ArrowUp']) ? 1 : 0;
   const brakeInput = (keys['KeyS'] || keys['ArrowDown']) ? 1 : 0;
   car.handbrake = keys['Space'] || false;
@@ -375,7 +374,6 @@ function updateCar(dt) {
       car.vel -= car.accel * 0.5 * dt;
     }
   } else {
-    // Natural friction
     if (car.vel > 0) {
       car.vel -= car.friction * dt;
       if (car.vel < 0) car.vel = 0;
@@ -385,7 +383,7 @@ function updateCar(dt) {
     }
   }
 
-  // Drag (proportional to velocity squared)
+  // Drag
   const dragForce = car.drag * car.vel * Math.abs(car.vel);
   car.vel -= dragForce * dt;
 
@@ -394,7 +392,6 @@ function updateCar(dt) {
     car.vel *= (1 - 3 * dt);
   }
 
-  // Clamp speed
   car.vel = Math.max(car.reverseMax, Math.min(car.maxSpeed, car.vel));
 
   // Steering
@@ -405,7 +402,6 @@ function updateCar(dt) {
     car.steerAngle += steerInput * car.steerSpeed * dt;
     car.steerAngle = Math.max(-car.steerMax, Math.min(car.steerMax, car.steerAngle));
   } else {
-    // Return to center
     if (Math.abs(car.steerAngle) < 0.01) {
       car.steerAngle = 0;
     } else {
@@ -413,35 +409,35 @@ function updateCar(dt) {
     }
   }
 
-  // Speed-dependent steering: less effective at high speed
+  // Speed-dependent steering
   const speedFactor = Math.max(0.3, 1 - Math.abs(car.vel) / car.maxSpeed * 0.5);
   const effectiveSteer = car.steerAngle * speedFactor * (Math.abs(car.vel) / 50 + 0.1);
 
-  // Update heading
   car.heading += effectiveSteer * dt;
 
-  // Update position
+  // Update position -- Z-up: forward = (sin(h), cos(h), 0)
   car.pos.x += Math.sin(car.heading) * car.vel * dt;
   car.pos.y += Math.cos(car.heading) * car.vel * dt;
 
-  // Keep car on road (soft boundary)
+  // Road boundary (soft collision on X axis)
   const roadEdge = ROAD_WIDTH / 2;
   if (Math.abs(car.pos.x) > roadEdge) {
     car.pos.x = Math.sign(car.pos.x) * roadEdge;
-    car.vel *= 0.85; // slow down when hitting edge
+    car.vel *= 0.85;
   }
 
   // Apply to car group
-  carGroup.position.copy(car.pos);
-  carGroup.rotation.y = car.heading;
+  // Z-up: heading rotates around Z, position uses (x, y, z)
+  carGroup.position.set(car.pos.x, car.pos.y, ROAD_SURFACE_Z);
+  carGroup.rotation.z = car.heading;
 
-  // Wheel spin animation
-  car.wheelSpin += car.vel * dt * 0.3;
-  carGroup.userData.wheels.forEach((w, i) => {
-    w.rotation.x = car.wheelSpin;
-    // Front wheels steer
-    if (i < 2) w.rotation.y = car.steerAngle;
-  });
+  // Wheel spin
+  car.wheelSpin += car.vel * dt * 0.15;
+  if (carGroup.userData.wheels) {
+    carGroup.userData.wheels.forEach((w) => {
+      w.rotation.x = car.wheelSpin;
+    });
+  }
 
   // Stats
   distance = Math.max(distance, car.pos.y);
@@ -450,40 +446,40 @@ function updateCar(dt) {
   score = Math.floor(distance / 10);
 }
 
-// ─── Update Camera ───────────────────────────────
+// ─── Camera Update (Z-up) ─────────────────────────
 function updateCamera(dt) {
   const speedKmh = Math.abs(car.vel);
-  
+
   if (cameraMode === 0) {
-    // Chase camera
-    const camHeight = 55 + speedKmh * 0.08;
-    const camDist = 90 + speedKmh * 0.15;
+    // Chase camera -- behind and above the car in Z-up
+    const camHeight = 80 + speedKmh * 0.1;
+    const camDist = 150 + speedKmh * 0.2;
     const targetX = car.pos.x - Math.sin(car.heading) * camDist;
     const targetY = car.pos.y - Math.cos(car.heading) * camDist;
     const targetZ = camHeight;
-    
+
     camera.position.x += (targetX - camera.position.x) * 3 * dt;
     camera.position.y += (targetY - camera.position.y) * 3 * dt;
     camera.position.z += (targetZ - camera.position.z) * 3 * dt;
-    
-    camTarget.set(car.pos.x, car.pos.y, 10);
+
+    camTarget.set(car.pos.x, car.pos.y, 20);
     camera.lookAt(camTarget);
   } else if (cameraMode === 1) {
-    // Hood / cockpit camera
-    const hx = car.pos.x + Math.sin(car.heading) * 20;
-    const hy = car.pos.y + Math.cos(car.heading) * 20;
-    camera.position.set(hx, hy, 45);
+    // Hood camera
+    const hx = car.pos.x + Math.sin(car.heading) * 30;
+    const hy = car.pos.y + Math.cos(car.heading) * 30;
+    camera.position.set(hx, hy, 50);
     camTarget.set(
-      car.pos.x + Math.sin(car.heading) * 200,
-      car.pos.y + Math.cos(car.heading) * 200,
+      car.pos.x + Math.sin(car.heading) * 300,
+      car.pos.y + Math.cos(car.heading) * 300,
       30
     );
     camera.lookAt(camTarget);
   } else {
-    // Far / cinematic camera
-    const fx = car.pos.x - Math.sin(car.heading + 0.5) * 200;
-    const fy = car.pos.y - Math.cos(car.heading + 0.5) * 200;
-    camera.position.set(fx, fy, 120);
+    // Cinematic far view
+    const fx = car.pos.x - Math.sin(car.heading + 0.4) * 300;
+    const fy = car.pos.y - Math.cos(car.heading + 0.4) * 300;
+    camera.position.set(fx, fy, 180);
     camTarget.set(car.pos.x, car.pos.y, 0);
     camera.lookAt(camTarget);
   }
@@ -491,20 +487,19 @@ function updateCamera(dt) {
 
 // ─── Sun follows car ──────────────────────────────
 function updateSun() {
-  sun.position.set(car.pos.x + 800, 1500, car.pos.y + 400);
-  sun.target.position.set(car.pos.x, 0, car.pos.y);
+  sun.position.set(car.pos.x + 800, car.pos.y + 400, 1500);
+  sun.target.position.set(car.pos.x, car.pos.y, 0);
   sun.target.updateMatrixWorld();
 }
-scene.add(sun.target);
 
-// ─── HUD Update ───────────────────────────────────
+// ─── HUD ──────────────────────────────────────────
 const speedEl = document.getElementById('speed-val');
 const speedoArc = document.getElementById('speedo-arc');
 const topspeedEl = document.getElementById('topspeed-val');
 const distEl = document.getElementById('dist-val');
 const scoreEl = document.getElementById('score-val');
 const gearEl = document.getElementById('gear-ind');
-const ARC_CIRC = 2 * Math.PI * 52; // ≈ 326.7
+const ARC_CIRC = 2 * Math.PI * 52;
 
 function updateHUD() {
   const speedKmh = Math.round(Math.abs(car.vel));
@@ -512,13 +507,11 @@ function updateHUD() {
   topspeedEl.textContent = Math.round(topSpeed);
   distEl.textContent = (distance / 1000).toFixed(2);
   scoreEl.textContent = score;
-  
-  // Speedometer arc
+
   const pct = Math.min(1, speedKmh / car.maxSpeed);
   speedoArc.style.strokeDashoffset = ARC_CIRC * (1 - pct);
   speedoArc.style.stroke = pct > 0.8 ? '#ff5252' : pct > 0.5 ? '#ffc107' : '#4fc3f7';
-  
-  // Gear indicator
+
   if (car.vel < -0.5) gearEl.textContent = 'R';
   else if (car.vel < 0.5) gearEl.textContent = 'N';
   else if (speedKmh < 60) gearEl.textContent = '1';
@@ -535,7 +528,7 @@ function animate() {
   const now = performance.now();
   let dt = (now - lastTime) / 1000;
   lastTime = now;
-  dt = Math.min(dt, 0.05); // clamp to prevent huge jumps
+  dt = Math.min(dt, 0.05);
 
   updateCar(dt);
   updateRoadTiles();
