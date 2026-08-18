@@ -496,7 +496,8 @@ function setupCarModel(gltfScene) {
 
   const carScale = 1.5;
   carModel.scale.setScalar(carScale);
-  carModel.position.set(-center.x * carScale, -center.y * carScale, -box.min.z * carScale);
+  carModel.rotation.y = Math.PI; // Flip car right-side up (model Z is inverted)
+  carModel.position.set(center.x * carScale, -center.y * carScale, box.max.z * carScale);
 
   carModel.traverse((child) => {
     if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; }
