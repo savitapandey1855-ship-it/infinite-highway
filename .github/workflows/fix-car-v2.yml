@@ -1,0 +1,35 @@
+name: Fix Car Orientation v2
+on:
+  workflow_dispatch:
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix car orientation properly
+        run: |
+          # 1. Replace rotation.y = Math.PI with rotation.x = Math.PI
+          #    rotation.x = π flips Z (upside-down → right-side up) and Y (car faces backward)
+          sed -i 's|carModel.rotation.y = Math.PI;.*|carModel.rotation.x = Math.PI; // Flip Z: wheels down, roof up. Y also flips (compensated below)|' index.html
+          
+          # 2. Fix position: after rotation.x=π, Y is inverted, so use +center.y instead of -center.y
+          #    Z: use box.max.z to bring lowest point (wheels, now at -max.z) to Z=0
+          sed -i "s|carModel.position.set(center.x \* carScale, -center.y \* carScale, box.max.z \* carScale);|carModel.position.set(-center.x * carScale, center.y * carScale, box.max.z * carScale);|" index.html
+          
+          # 3. Compensate heading for Y flip: add π to carGroup.rotation.z
+          sed -i 's|carGroup.rotation.z = car.heading;|carGroup.rotation.z = car.heading + Math.PI; // +π compensates rotation.x flip|' index.html
+          
+          # Verify
+          echo "=== Changes ==="
+          grep -n "rotation.x = Math.PI" index.html
+          grep -n "position.set(-center" index.html
+          grep -n "heading + Math.PI" index.html
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "fix: use rotation.x=π to flip car right-side up + compensate heading"
+          git push
