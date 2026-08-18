@@ -1,0 +1,42 @@
+name: Fix Z-up Rotations
+on:
+  workflow_dispatch:
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply rotation fixes
+        run: |
+          # 1. Remove wrong rotation from road (PlaneGeometry is already flat in XY plane for Z-up)
+          sed -i 's|road.rotation.x = Math.PI / 2;.*|// No rotation needed — PlaneGeometry is already flat in XY plane (Z-up)|' index.html
+          
+          # 2. Remove wrong rotation from lane dashes
+          sed -i 's|dash.rotation.x = -Math.PI / 2;|// No rotation — already flat in XY plane (Z-up)|' index.html
+          
+          # 3. Remove wrong rotation from lane lines
+          sed -i 's|line.rotation.x = -Math.PI / 2;|// No rotation — already flat in XY plane (Z-up)|' index.html
+          
+          # 4. Remove wrong rotation from grass
+          sed -i 's|grass.rotation.x = -Math.PI / 2;|// No rotation — already flat in XY plane (Z-up)|' index.html
+          
+          # 5. Add rotation for street light pole (cylinder Y-axis -> Z-axis)
+          sed -i '/const pole = new THREE.Mesh(geoLampPole/a\  pole.rotation.x = -Math.PI / 2; // Rotate cylinder from Y to Z (up)' index.html
+          
+          # 6. Add rotation for tree trunk
+          sed -i '/const trunk = new THREE.Mesh(geoTreeTrunk/a\  trunk.rotation.x = -Math.PI / 2; // Rotate from Y to Z (up)' index.html
+          
+          # 7. Add rotation for tree cone1
+          sed -i '/const cone1 = new THREE.Mesh(geoTreeCone/a\  cone1.rotation.x = -Math.PI / 2; // Rotate from Y to Z (up)' index.html
+          
+          # 8. Add rotation for tree cone2
+          sed -i '/const cone2 = new THREE.Mesh(new THREE.ConeGeometry/a\  cone2.rotation.x = -Math.PI / 2; // Rotate from Y to Z (up)' index.html
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "fix: correct Z-up rotations — road flat, cylinders/cones point up" || echo "No changes"
+          git push
