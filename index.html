@@ -326,6 +326,7 @@ function createBuilding(x, y, z, width, depth, height) {
 function createStreetLight(x, y) {
   const group = new THREE.Group();
   const pole = new THREE.Mesh(geoLampPole, matStreetLight);
+  pole.rotation.x = -Math.PI / 2; // Rotate cylinder from Y to Z (up)
   pole.position.set(0, 0, 20);
   pole.castShadow = true;
   group.add(pole);
@@ -349,16 +350,19 @@ function createStreetLight(x, y) {
 function createTree(x, y) {
   const group = new THREE.Group();
   const trunk = new THREE.Mesh(geoTreeTrunk, matTreeTrunk);
+  trunk.rotation.x = -Math.PI / 2; // Rotate from Y to Z (up)
   trunk.position.set(0, 0, 7.5);
   trunk.castShadow = true;
   group.add(trunk);
 
   const cone1 = new THREE.Mesh(geoTreeCone, matTreeLeaves);
+  cone1.rotation.x = -Math.PI / 2; // Rotate from Y to Z (up)
   cone1.position.set(0, 0, 24);
   cone1.castShadow = true;
   group.add(cone1);
 
   const cone2 = new THREE.Mesh(new THREE.ConeGeometry(4.5, 12, 8), matTreeLeaves);
+  cone2.rotation.x = -Math.PI / 2; // Rotate from Y to Z (up)
   cone2.position.set(0, 0, 32);
   cone2.castShadow = true;
   group.add(cone2);
@@ -372,7 +376,7 @@ function createCityTile(tileY) {
 
   // Road surface
   const road = new THREE.Mesh(geoRoadTile, matAsphalt);
-  road.rotation.x = Math.PI / 2;
+  // No rotation needed — PlaneGeometry is already flat in XY plane (Z-up)
   road.position.set(0, 0, 0);
   road.receiveShadow = true;
   group.add(road);
@@ -394,7 +398,7 @@ function createCityTile(tileY) {
   for (let y = -TILE_LENGTH/2 + 10; y < TILE_LENGTH/2; y += 20) {
     const dash = new THREE.Mesh(geoLaneDash,
       new THREE.MeshStandardMaterial({ color:0xffd700, roughness:0.5, emissive:0x332200 }));
-    dash.rotation.x = -Math.PI / 2;
+    // No rotation — already flat in XY plane (Z-up)
     dash.position.set(0, y, 0.2);
     group.add(dash);
   }
@@ -402,7 +406,7 @@ function createCityTile(tileY) {
   // White solid lane lines
   for (const xOffset of [-40, -20, 20, 40]) {
     const line = new THREE.Mesh(geoLaneSolid, matLaneWhite);
-    line.rotation.x = -Math.PI / 2;
+    // No rotation — already flat in XY plane (Z-up)
     line.position.set(xOffset, 0, 0.15);
     group.add(line);
   }
@@ -410,7 +414,7 @@ function createCityTile(tileY) {
   // Grass strips
   for (const side of [-1, 1]) {
     const grass = new THREE.Mesh(new THREE.PlaneGeometry(15, TILE_LENGTH), matGrass);
-    grass.rotation.x = -Math.PI / 2;
+    // No rotation — already flat in XY plane (Z-up)
     grass.position.set(side * (ROAD_HALF_WIDTH + SIDEWALK_WIDTH + 12), 0, 0.1);
     grass.receiveShadow = true;
     group.add(grass);
