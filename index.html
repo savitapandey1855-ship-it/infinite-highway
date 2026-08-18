@@ -496,8 +496,8 @@ function setupCarModel(gltfScene) {
 
   const carScale = 1.5;
   carModel.scale.setScalar(carScale);
-  carModel.rotation.y = Math.PI; // Flip car right-side up (model Z is inverted)
-  carModel.position.set(center.x * carScale, -center.y * carScale, box.max.z * carScale);
+  carModel.rotation.x = Math.PI; // Flip Z: wheels down, roof up. Y also flips (compensated below)
+  carModel.position.set(-center.x * carScale, center.y * carScale, box.max.z * carScale);
 
   carModel.traverse((child) => {
     if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; }
@@ -646,7 +646,7 @@ function updateCar(dt) {
   }
 
   carGroup.position.set(car.pos.x, car.pos.y, 0);
-  carGroup.rotation.z = car.heading;
+  carGroup.rotation.z = car.heading + Math.PI; // +π compensates rotation.x flip
 
   car.wheelSpin += car.vel * dt * 0.2;
   if (carGroup.userData.wheels) {
