@@ -1,0 +1,27 @@
+name: Fetch Assets
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fetch-assets:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Download release assets
+        run: |
+          curl -L -o american_road.glb "https://github.com/${{ github.repository }}/releases/download/v1.0/american_road.glb"
+          curl -L -o car.glb "https://github.com/${{ github.repository }}/releases/download/v1.0/car.glb"
+          ls -lh american_road.glb car.glb
+
+      - name: Commit assets to repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add american_road.glb car.glb
+          git commit -m "chore: add GLB model assets to repo" || echo "No changes to commit"
+          git push
