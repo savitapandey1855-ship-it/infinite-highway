@@ -1,0 +1,28 @@
+name: Fix Car Flip
+on:
+  workflow_dispatch:
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix car model orientation
+        run: |
+          # Add rotation.y = PI to flip car right-side up (Z was inverted)
+          sed -i '/carModel.scale.setScalar(carScale);/a\  carModel.rotation.y = Math.PI; // Flip car right-side up (model Z is inverted)' index.html
+          
+          # Change position from -center.x to +center.x (X flips with Y rotation)
+          sed -i "s|carModel.position.set(-center.x \* carScale, -center.y \* carScale, -box.min.z \* carScale);|carModel.position.set(center.x * carScale, -center.y * carScale, box.max.z * carScale);|" index.html
+      - name: Verify changes
+        run: |
+          grep -n "rotation.y" index.html
+          grep -n "position.set(center" index.html
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "fix: flip car model right-side up (Z axis was inverted in GLB)"
+          git push
