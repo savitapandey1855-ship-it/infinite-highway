@@ -179,9 +179,9 @@ const NUM_TILES = 5;
 const ROAD_WIDTH = 500;   // playable width for collision
 const ROAD_SURFACE_Z = 6; // road surface height from model
 
-// URLs for models hosted on GitHub Releases
-const ROAD_URL = 'https://github.com/savitapandey1855-ship-it/infinite-highway/releases/download/v1.0/american_road.glb';
-const CAR_URL  = 'https://github.com/savitapandey1855-ship-it/infinite-highway/releases/download/v1.0/car.glb';
+// Model URLs (jsDelivr CDN for proper CORS headers + caching)
+const ROAD_URL = 'https://cdn.jsdelivr.net/gh/savitapandey1855-ship-it/infinite-highway@main/american_road.glb';
+const CAR_URL  = 'https://cdn.jsdelivr.net/gh/savitapandey1855-ship-it/infinite-highway@main/car.glb';
 
 // ─── DOM refs ─────────────────────────────────────
 const loadingFill = document.getElementById('loading-fill');
